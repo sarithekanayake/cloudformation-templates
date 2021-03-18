@@ -1,0 +1,489 @@
+---
+Description: 'LSEG Infrastructure Deployment Assignment - Sarith Ekanayake'
+Parameters:
+  InstanceType:
+    Description: EC2 instance type for Web Servers
+    Type: String
+    Default: t2.micro
+    AllowedValues:
+    - t2.nano
+    - t2.micro
+    - t3.micro
+    - t2.small
+    - t2.medium
+    - t2.large
+    - m3.medium
+    - m3.large
+    - m3.xlarge
+    - m3.2xlarge
+    - c3.large
+    - c3.xlarge
+    - c3.2xlarge
+    - c3.4xlarge
+    - c3.8xlarge
+    - c4.large
+    - c4.xlarge
+    - c4.2xlarge
+    - c4.4xlarge
+    - c4.8xlarge
+    - r3.large
+    - r3.xlarge
+    - r3.2xlarge
+    - r3.4xlarge
+    - r3.8xlarge
+    - i2.xlarge
+    - i2.2xlarge
+    - i2.4xlarge
+    - i2.8xlarge
+    - hi1.4xlarge
+    - hs1.8xlarge
+    - cr1.8xlarge
+    - cc2.8xlarge
+    ConstraintDescription: must be a valid EC2 instance type
+  SSHKey:
+    Description:  Name of an existing EC2 KeyPair to enable SSH access to the instances. Linked to AWS Parameter
+    Type: AWS::EC2::KeyPair::KeyName
+    ConstraintDescription:  Must select an existing EC2 KeyPair
+  S3BucketName:
+    Description:  Name of an S3 Bucket to Store Web Server Logs
+    Type: String
+    ConstraintDescription: must be a valid S3 Bucket name
+
+Mappings:
+  AmazonLinux2AMI:
+    ap-northeast-1:
+      AMI: ami-0f27d081df46f326c
+    ap-northeast-2:
+      AMI: ami-0e17ad9abf7e5c818
+    ap-south-1:
+      AMI: ami-081bb417559035fe8
+    ap-southeast-1:
+      AMI: ami-0cd4900b43e25799c
+    ap-southeast-2:
+      AMI: ami-0b72132eb3104947d
+    eu-central-1:
+      AMI: ami-0de9f803fcac87f46
+    eu-west-1:
+      AMI: ami-079d9017cb651564d
+    eu-west-2:
+      AMI: ami-0b6b51e397faf2316
+    eu-west-3:
+      AMI: ami-0d9a499b43edd7ae0
+    sa-east-1:
+      AMI: ami-01eb71e14cef400e2
+    us-east-1:
+      AMI: ami-038f1ca1bd58a5790
+    us-east-2:
+      AMI: ami-07a0844029df33d7d
+    us-west-1:
+      AMI: ami-0c7945b4c95c0481c
+    us-west-2:
+      AMI: ami-00f9f4069d04c0c6e
+
+Resources:
+#VPC creation
+  Vpc:
+    Type: AWS::EC2::VPC
+    Properties:
+      CidrBlock:  10.0.0.0/16
+      EnableDnsSupport: True
+      EnableDnsHostnames: True
+      Tags:
+        - Key:  Name
+          Value:  !Sub  ${AWS::StackName}
+
+#Subnets Creation
+#AZ 01 subnets
+  PublicSub01:
+    Type: AWS::EC2::Subnet
+    Properties:
+      CidrBlock:  10.0.1.0/24
+      MapPublicIpOnLaunch:  True
+      AvailabilityZone: !Select [0, Fn::GetAZs: !Ref  'AWS::Region']
+      VpcId:  !Ref  Vpc
+      Tags:
+        - Key:  Name
+          Value:  PublicSub01
+
+  WebServerSub01:
+    Type: AWS::EC2::Subnet
+    Properties:
+      CidrBlock:  10.0.3.0/24
+      AvailabilityZone: !Select [0, Fn::GetAZs: !Ref  'AWS::Region']
+      VpcId:  !Ref  Vpc
+      Tags:
+        - Key:  Name
+          Value:  WebServerSub01
+
+  DataBaseSub01:
+    Type: AWS::EC2::Subnet
+    Properties:
+      CidrBlock:  10.0.5.0/24
+      AvailabilityZone: !Select [0, Fn::GetAZs: !Ref  'AWS::Region']
+      VpcId:  !Ref  Vpc
+      Tags:
+        - Key:  Name
+          Value:  DataBaseSub01
+#AZ 02 subnets
+  PublicSub02:
+    Type: AWS::EC2::Subnet
+    Properties:
+      CidrBlock:  10.0.2.0/24
+      MapPublicIpOnLaunch:  True
+      AvailabilityZone: !Select [1, Fn::GetAZs: !Ref  'AWS::Region']
+      VpcId:  !Ref  Vpc
+      Tags:
+        - Key:  Name
+          Value:  PublicSub02
+
+  WebServerSub02:
+    Type: AWS::EC2::Subnet
+    Properties:
+      CidrBlock:  10.0.4.0/24
+      AvailabilityZone: !Select [1, Fn::GetAZs: !Ref  'AWS::Region']
+      VpcId:  !Ref  Vpc
+      Tags:
+        - Key:  Name
+          Value:  WebServerSub02
+
+  DataBaseSub02:
+    Type: AWS::EC2::Subnet
+    Properties:
+      CidrBlock:  10.0.6.0/24
+      AvailabilityZone: !Select [1, Fn::GetAZs: !Ref  'AWS::Region']
+      VpcId:  !Ref  Vpc
+      Tags:
+        - Key:  Name
+          Value:  DataBaseSub02
+
+#Internet Gateway configuration and attachment to VPC
+  InternetGW:
+    Type: AWS::EC2::InternetGateway
+    Properties:
+      Tags:
+        - Key:  Name
+          Value:  !Sub  ${AWS::StackName}-IGW
+
+  VpcIgwAttchment:
+    Type: AWS::EC2::VPCGatewayAttachment
+    Properties:
+      VpcId:  !Ref  Vpc
+      InternetGatewayId:  !Ref  InternetGW
+
+#NatGateWay configuration with EIP
+  NatGateway:
+    Type: AWS::EC2::NatGateway
+    DependsOn:  EIP
+    Properties:
+      AllocationId: !GetAtt [EIP, AllocationId]
+      SubnetId: !Ref PublicSub01
+      Tags:
+        - Key:  Name
+          Value:  !Sub ${AWS::StackName}-NATGW
+
+  EIP:
+    Type: AWS::EC2::EIP
+    Properties:
+      Domain: vpc
+
+#Route Table Configurations 
+  PubRouteTable:
+    Type: AWS::EC2::RouteTable
+    Properties:
+      Tags:
+        - Key:  Name
+          Value:  PubRoute
+      VpcId:  !Ref  Vpc
+
+  PriRouteTable:
+    Type: AWS::EC2::RouteTable
+    Properties:
+      Tags:
+        - Key:  Name
+          Value:  PriRoute
+      VpcId:  !Ref  Vpc
+
+#Subnet to Route Table associations
+  PubSub01RouteAss:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Properties:
+      RouteTableId: !Ref  PubRouteTable
+      SubnetId: !Ref  PublicSub01
+
+  PubSub02RouteAss:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Properties:
+      RouteTableId: !Ref  PubRouteTable
+      SubnetId: !Ref  PublicSub02
+
+  WebSub01RouteAss:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Properties:
+      RouteTableId: !Ref  PriRouteTable
+      SubnetId: !Ref  WebServerSub01
+
+  WebSub02RouteAss:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Properties:
+      RouteTableId: !Ref  PriRouteTable
+      SubnetId: !Ref  WebServerSub02
+
+  DBSub01RouteAss:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Properties:
+      RouteTableId: !Ref  PriRouteTable
+      SubnetId: !Ref  DataBaseSub01
+
+  DBSub02RouteAss:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Properties:
+      RouteTableId: !Ref  PriRouteTable
+      SubnetId: !Ref  DataBaseSub02
+
+#Routes Configuration
+  IGRoute:
+    Type: AWS::EC2::Route
+    Properties:
+      DestinationCidrBlock:  0.0.0.0/0
+      GatewayId: !Ref InternetGW
+      RouteTableId: !Ref  PubRouteTable
+
+  NatGWRoute:
+    Type: AWS::EC2::Route
+    Properties:
+      DestinationCidrBlock: 0.0.0.0/0
+      NatGatewayId: !Ref  NatGateway
+      RouteTableId: !Ref  PriRouteTable
+
+#Security Group Configurations
+  Ec2SG:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupDescription: Ec2 Security Group
+      GroupName:  Ec2SG
+      VpcId:  !Ref  Vpc
+      SecurityGroupIngress:
+        - IpProtocol: tcp
+          FromPort: 80
+          ToPort: 80
+          CidrIp: 0.0.0.0/0
+
+  AlbSG:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupDescription: ALB Security Group
+      GroupName:  ALB-SG
+      VpcId:  !Ref  Vpc
+      SecurityGroupIngress:
+        - IpProtocol: tcp
+          FromPort: 80
+          ToPort: 80
+          CidrIp: 0.0.0.0/0
+
+  DataBaseSG:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupDescription: Data Base SG
+      GroupName:  DataBaseSG
+      VpcId:  !Ref  Vpc
+      SecurityGroupIngress:
+        - IpProtocol: tcp
+          FromPort: 3306
+          ToPort: 3306
+          SourceSecurityGroupId:  !GetAtt Ec2SG.GroupId
+
+#IAM Role Configurations
+  Ec2Instanceprofile:
+    Type: AWS::IAM::InstanceProfile
+    Properties:
+      Path: /
+      Roles:
+        - !Ref  Ec2Role
+
+  Ec2Role:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version:  2012-10-17
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service:  ec2.amazonaws.com
+            Action: sts:AssumeRole
+      Path: /
+
+  Ec2RolePolicies:
+    Type: AWS::IAM::Policy
+    Properties:
+      PolicyName: ec2policies
+      PolicyDocument:
+        Version: 2012-10-17
+        Statement:
+          - Effect: Allow
+            Action: 's3:*'
+            Resource: '*'
+          - Effect: Allow
+            Action: 
+              - 'ssm:DescribeAssociation'
+              - 'ssm:GetDeployablePatchSnapshotForInstance'
+              - 'ssm:GetDocument'
+              - 'ssm:DescribeDocument'
+              - 'ssm:GetManifest'
+              - 'ssm:GetParameter'
+              - 'ssm:GetParameters'
+              - 'ssm:ListAssociations'
+              - 'ssm:ListInstanceAssociations'
+              - 'ssm:PutInventory'
+              - 'ssm:PutComplianceItems'
+              - 'ssm:PutConfigurePackageResult'
+              - 'ssm:UpdateAssociationStatus'
+              - 'ssm:UpdateInstanceAssociationStatus'
+              - 'ssm:UpdateInstanceInformation'
+            Resource: '*'
+          - Effect: Allow
+            Action: 
+              - 'ssmmessages:CreateControlChannel'
+              - 'ssmmessages:CreateDataChannel'
+              - 'ssmmessages:OpenControlChannel'
+              - 'ssmmessages:OpenDataChannel'
+            Resource: '*'
+          - Effect: Allow
+            Action:
+              - 'ec2messages:AcknowledgeMessage'
+              - 'ec2messages:DeleteMessage'
+              - 'ec2messages:FailMessage'
+              - 'ec2messages:GetEndpoint'
+              - 'ec2messages:GetMessages'
+              - 'ec2messages:SendReply'
+            Resource: '*'
+      Roles:
+        - !Ref  Ec2Role
+
+#Application Load Balancer
+  PubALB:
+    Type: AWS::ElasticLoadBalancingV2::LoadBalancer
+    Properties:
+      IpAddressType:  ipv4
+      Name: publicalb
+      Scheme: internet-facing
+      SecurityGroups:
+        - !Ref  AlbSG
+      Subnets:
+        - !Ref  PublicSub01
+        - !Ref  PublicSub02
+      Type: application
+
+  ALBListner:
+    Type: AWS::ElasticLoadBalancingV2::Listener
+    Properties:
+      LoadBalancerArn:  !Ref  PubALB
+      Port: 80
+      Protocol: HTTP
+      DefaultActions:
+        - Type: forward
+          TargetGroupArn: !Ref  ALBTargetGroup
+
+  ALBTargetGroup:
+    Type: AWS::ElasticLoadBalancingV2::TargetGroup
+    Properties:
+      Name: PublicALBTG
+      TargetType: instance
+      HealthCheckEnabled: true
+      HealthyThresholdCount:  2
+      HealthCheckTimeoutSeconds:  5
+      HealthCheckIntervalSeconds: 10
+      UnhealthyThresholdCount:  3
+      HealthCheckPath:  /index.html
+      VpcId:  !Ref  Vpc
+      Port: 80
+      Protocol: HTTP
+      TargetGroupAttributes:
+        - Key:  stickiness.enabled
+          Value:  False
+
+  LaunchConfig:
+    Type: AWS::AutoScaling::LaunchConfiguration
+    DependsOn:  MySqlDB
+    Properties:
+      LaunchConfigurationName:  "Web Server LC"
+      InstanceType: !Ref  InstanceType
+      IamInstanceProfile: !Ref  Ec2Instanceprofile
+      ImageId:
+        Fn::FindInMap:
+        - AmazonLinux2AMI
+        - !Ref AWS::Region
+        - AMI
+      KeyName:  !Ref  SSHKey
+      SecurityGroups:
+        - !Ref  Ec2SG
+      UserData:
+        Fn::Base64: !Sub |
+          #!/bin/bash
+          sudo yum update -y
+          sudo yum install -y httpd mysql git python-pip
+          sudo pip install email
+          ipadd=`ifconfig eth0 | grep -w inet | sed 's/^[[:space:]]*//g' | cut -d ' ' -f 2`
+          sudo echo "Hello World from Web Server (IP: $ipadd )" > /var/www/html/index.html
+          sudo systemctl start httpd
+          sudo chown -R ec2-user: /var/log/httpd
+          cd /home/ec2-user
+          git clone https://github.com/sarithekanayake/scripts.git
+          cd scripts/dailybackup
+          sed -i 's/lsegbucketname/${S3BucketName}/g' dailybackup.sh
+          sudo chown -R ec2-user:ec2-user /home/ec2-user/
+          echo "0 9 * * * ec2-user sudo systemctl start httpd" >> /var/spool/cron/ec2-user
+          echo "0 17 * * * ec2-user sudo systemctl stop httpd" >> /var/spool/cron/ec2-user
+          echo "15 17 * * * ec2-user cd /home/ec2-user/scripts/dailybackup; ./dailybackup.sh > backup.log 2>/dev/null"  >> /var/spool/cron/ec2-user 
+          mysql -u admin -h ${MySqlDB.Endpoint.Address} --password=sarith123 -e "use webserver; create table responses ( server_ip VARCHAR(20), status_code INT(3), web_server_status VARCHAR(10), date VARCHAR(20), time VARCHAR(20));"
+
+  Ec2AutoScaling:
+    Type: AWS::AutoScaling::AutoScalingGroup
+    DependsOn:  MySqlDB
+    Properties:
+      AutoScalingGroupName: Ec2AutoScalingGroup
+      VPCZoneIdentifier:
+        - !Ref  WebServerSub01
+        - !Ref  WebServerSub02
+      LaunchConfigurationName: !Ref  LaunchConfig
+      DesiredCapacity:  '2'
+      MinSize:  '2'
+      MaxSize:  '2'
+      TargetGroupARNs:
+        - !Ref  ALBTargetGroup
+      Tags:
+        - Key:  Name
+          Value:  Web-Server
+          PropagateAtLaunch:  True
+
+#Data Base Creation
+  MySqlDB:
+    Type: AWS::RDS::DBInstance
+    Properties:
+      Engine: MySQL
+      DBInstanceIdentifier: Proddb
+      DBName: webserver
+      DBInstanceClass:  db.t2.micro
+      MasterUsername: admin
+      MasterUserPassword: sarith123
+      DBSubnetGroupName:  !Ref  DBSubnetGroup
+      PubliclyAccessible: False
+      AllocatedStorage: '20'
+      MultiAZ: false
+      Port: 3306
+      VPCSecurityGroups:
+        - !Ref  DataBaseSG
+
+  DBSubnetGroup:
+    Type: AWS::RDS::DBSubnetGroup
+    Properties:
+      DBSubnetGroupDescription: Subnet group for MySQL Database
+      DBSubnetGroupName:  MySQLDB
+      SubnetIds:
+        - !Ref  DataBaseSub01      
+        - !Ref  DataBaseSub02
+
+#S3 Bucket Creation
+  ApacheLogsS3Bucket:
+    Type: AWS::S3::Bucket
+    Properties:
+      BucketName: !Sub ${S3BucketName}
