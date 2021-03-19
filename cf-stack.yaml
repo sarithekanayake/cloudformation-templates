@@ -487,3 +487,17 @@ Resources:
     Type: AWS::S3::Bucket
     Properties:
       BucketName: !Sub ${S3BucketName}
+
+Outputs:
+  ALBDNSName:
+    Description: DNS Name of the ELB
+    Value:
+      Fn::GetAtt:
+      - PubALB
+      - DNSName
+  MysqlDBendpoint:
+    Description:  Endpoint url of RDS instance
+    Value:
+      Fn::GetAtt:
+      - MySqlDB
+      - Endpoint.Address
